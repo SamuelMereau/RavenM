@@ -29,6 +29,8 @@
         SpecOpsDialog,
         UpdateDestructible,
         DestroyDestructible,
-        ChatCommand
+        ChatCommand,
+        Countermeasures,
+        NetworkGameObject
     }
 }
