@@ -326,7 +326,7 @@ namespace RavenM
                 return true;
 
             var sourceId = -1;
-            if (__instance.source != null && __instance.source.TryGetComponent(out GuidComponent aguid))
+            if (__instance.killCredit != null && __instance.killCredit.TryGetComponent(out GuidComponent aguid))
                 sourceId = aguid.guid;
 
             if (IngameNetManager.instance.OwnedActors.Contains(sourceId) || (sourceId == -1 && IngameNetManager.instance.IsHost))
@@ -405,6 +405,18 @@ namespace RavenM
                 return;
 
             __instance.EnableMovement();
+        }
+    }
+
+    [HarmonyPatch(typeof(GameManager), nameof(GameManager.PauseGame))]
+    public class DisablePauseGame
+    {
+        static bool Prefix() 
+        {
+            if (!IngameNetManager.instance.IsClient)
+                return true;
+
+            return false;
         }
     }
 
@@ -1590,13 +1602,13 @@ namespace RavenM
                                 break;
                             case PacketType.GameStateUpdate:
                                 {
-                                    switch (GameModeBase.instance.gameModeType)
+                                    switch (GameModeBase.activeGameMode.gameModeType)
                                     {
                                         case GameModeType.Battalion:
                                             {
                                                 var gameUpdatePacket = dataStream.ReadBattleStatePacket();
 
-                                                var battleObj = GameModeBase.instance as BattleMode;
+                                                var battleObj = GameModeBase.activeGameMode as BattleMode;
 
                                                 var currentBattalions = (int[])typeof(BattleMode).GetField("remainingBattalions", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(battleObj);
 
@@ -1626,7 +1638,7 @@ namespace RavenM
                                             {
                                                 var gameUpdatePacket = dataStream.ReadDominationStatePacket();
 
-                                                var dominationObj = GameModeBase.instance as DominationMode;
+                                                var dominationObj = GameModeBase.activeGameMode as DominationMode;
 
                                                 var currentBattalions = (int[])typeof(DominationMode).GetField("remainingBattalions", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(dominationObj);
 
@@ -1671,7 +1683,7 @@ namespace RavenM
                                             {
                                                 var gameUpdatePacket = dataStream.ReadPointMatchStatePacket();
 
-                                                var pointMatchObj = GameModeBase.instance as PointMatch;
+                                                var pointMatchObj = GameModeBase.activeGameMode as PointMatch;
 
                                                 typeof(PointMatch).GetField("blueScore", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(pointMatchObj, gameUpdatePacket.BlueScore);
                                                 typeof(PointMatch).GetField("redScore", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(pointMatchObj, gameUpdatePacket.RedScore);
@@ -1689,7 +1701,7 @@ namespace RavenM
                                             {
                                                 var gameUpdatePacket = dataStream.ReadSkirmishStatePacket();
 
-                                                var skirmishObj = GameModeBase.instance as SkirmishMode;
+                                                var skirmishObj = GameModeBase.activeGameMode as SkirmishMode;
 
                                                 for (int i = 0; i < 2; i++)
                                                 {
@@ -1723,7 +1735,7 @@ namespace RavenM
                                             {
                                                 var gameUpdatePacket = dataStream.ReadSpecOpsStatePacket();
 
-                                                var specOpsObj = GameModeBase.instance as SpecOpsMode;
+                                                var specOpsObj = GameModeBase.activeGameMode as SpecOpsMode;
 
                                                 for (int i = 0; i < gameUpdatePacket.SpawnPointOwners.Length; i++)
                                                 {
@@ -1785,7 +1797,7 @@ namespace RavenM
                                                         {
                                                             allowRequestNewOrders = false
                                                         };
-                                                        actualScenario.squad.SetNotAlert(applyToMembers: true, limitSpeed: true);
+                                                        actualScenario.squad.SetNotAlert(limitSpeed: true);
 
                                                         typeof(SpecOpsMode).GetMethod("ActivateScenario", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(specOpsObj, new object[] { actualScenario, spawn });
                                                     }
@@ -1822,7 +1834,7 @@ namespace RavenM
                                             {
                                                 var gameUpdatePacket = dataStream.ReadHauntedStatePacket();
 
-                                                var hauntedObj = GameModeBase.instance as SpookOpsMode;
+                                                var hauntedObj = GameModeBase.activeGameMode as SpookOpsMode;
 
                                                 typeof(SpookOpsMode).GetField("skeletonCountModifier", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(hauntedObj, gameUpdatePacket.SkeletonCountModifier);
 
@@ -1879,7 +1891,7 @@ namespace RavenM
                                 {
                                     var flarePacket = dataStream.ReadFireFlarePacket();
 
-                                    if (GameModeBase.instance.gameModeType != GameModeType.SpecOps)
+                                    if (GameModeBase.activeGameMode.gameModeType != GameModeType.SpecOps)
                                     {
                                         Plugin.logger.LogError("Attempted to fire flare while not in spec ops.");
                                         break;
@@ -1888,7 +1900,7 @@ namespace RavenM
                                     var actor = ClientActors[flarePacket.Actor];
                                     var spawn = ActorManager.instance.spawnPoints[flarePacket.Spawn];
 
-                                    var specOpsObj = GameModeBase.instance as SpecOpsMode;
+                                    var specOpsObj = GameModeBase.activeGameMode as SpecOpsMode;
                                     specOpsObj.FireFlare(actor, spawn);
                                 }
                                 break;
@@ -1900,17 +1912,17 @@ namespace RavenM
                                     {
                                         case SpecOpsSequencePacket.SequenceType.ExfiltrationVictory:
                                             ExfiltrationVictorySequencePatch.CanPerform = true;
-                                            StartCoroutine(typeof(SpecOpsMode).GetMethod("ExfiltrationVictorySequence", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(GameModeBase.instance, null) as IEnumerator);
+                                            StartCoroutine(typeof(SpecOpsMode).GetMethod("ExfiltrationVictorySequence", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(GameModeBase.activeGameMode, null) as IEnumerator);
                                             ExfiltrationVictorySequencePatch.CanPerform = false;
                                             break;
                                         case SpecOpsSequencePacket.SequenceType.StealthVictory:
                                             StealthVictorySequencePatch.CanPerform = true;
-                                            StartCoroutine(typeof(SpecOpsMode).GetMethod("StealthVictorySequence", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(GameModeBase.instance, null) as IEnumerator);
+                                            StartCoroutine(typeof(SpecOpsMode).GetMethod("StealthVictorySequence", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(GameModeBase.activeGameMode, null) as IEnumerator);
                                             StealthVictorySequencePatch.CanPerform = false;
                                             break;
                                         case SpecOpsSequencePacket.SequenceType.Defeat:
                                             DefeatSequencePatch.CanPerform = true;
-                                            StartCoroutine(typeof(SpecOpsMode).GetMethod("DefeatSequence", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(GameModeBase.instance, null) as IEnumerator);
+                                            StartCoroutine(typeof(SpecOpsMode).GetMethod("DefeatSequence", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(GameModeBase.activeGameMode, null) as IEnumerator);
                                             DefeatSequencePatch.CanPerform = false;
                                             break;
                                     }
@@ -1946,7 +1958,7 @@ namespace RavenM
                                     var prefab = PrefabCache[tag];
                                     var projectile = ProjectilePoolManager.InstantiateProjectile(prefab, spawnPacket.Position, spawnPacket.Rotation);
 
-                                    projectile.source = actor;
+                                    projectile.killCredit = actor;
                                     projectile.sourceWeapon = null;
                                     projectile.performInfantryInitialMuzzleTravel = spawnPacket.performInfantryInitialMuzzleTravel;
                                     projectile.initialMuzzleTravelDistance = spawnPacket.initialMuzzleTravelDistance;
@@ -2334,11 +2346,11 @@ namespace RavenM
 
             byte[] data = null;
 
-            switch (GameModeBase.instance.gameModeType)
+            switch (GameModeBase.activeGameMode.gameModeType)
             {
                 case GameModeType.Battalion:
                     {
-                        var battleObj = GameModeBase.instance as BattleMode;
+                        var battleObj = GameModeBase.activeGameMode as BattleMode;
 
                         var gamePacket = new BattleStatePacket
                         {
@@ -2363,7 +2375,7 @@ namespace RavenM
                     break;
                 case GameModeType.Domination:
                     {
-                        var dominationObj = GameModeBase.instance as DominationMode;
+                        var dominationObj = GameModeBase.activeGameMode as DominationMode;
 
                         var flagSet = (DominationMode.FlagSet)typeof(DominationMode).GetField("activeFlagSet", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(dominationObj);
 
@@ -2397,7 +2409,7 @@ namespace RavenM
                     break;
                 case GameModeType.PointMatch:
                     {
-                        var pointMatchObj = GameModeBase.instance as PointMatch;
+                        var pointMatchObj = GameModeBase.activeGameMode as PointMatch;
 
                         var gamePacket = new PointMatchStatePacket
                         {
@@ -2422,7 +2434,7 @@ namespace RavenM
                     break;
                 case GameModeType.Skirmish:
                     {
-                        var skirmishObj = GameModeBase.instance as SkirmishMode;
+                        var skirmishObj = GameModeBase.activeGameMode as SkirmishMode;
 
                         var gamePacket = new SkirmishStatePacket
                         {
@@ -2449,7 +2461,7 @@ namespace RavenM
                     break;
                 case GameModeType.SpecOps:
                     {
-                        var specOpsObj = GameModeBase.instance as SpecOpsMode;
+                        var specOpsObj = GameModeBase.activeGameMode as SpecOpsMode;
 
                         var gamePacket = new SpecOpsStatePacket
                         {
@@ -2518,7 +2530,7 @@ namespace RavenM
                     break;
                 case GameModeType.Haunted:
                     {
-                        var hauntedObj = GameModeBase.instance as SpookOpsMode;
+                        var hauntedObj = GameModeBase.activeGameMode as SpookOpsMode;
 
                         var gamePacket = new HauntedStatePacket
                         {
@@ -2555,7 +2567,7 @@ namespace RavenM
             int flags = 0;
             if (!actor.dead && actor.controller.Aiming()) flags |= (int)ActorStateFlags.Aiming;
             if (!actor.dead && actor.controller.Crouch()) flags |= (int)ActorStateFlags.Crouch;
-            if (!actor.dead && actor.controller.Fire()) flags |= (int)ActorStateFlags.Fire;
+            if (!actor.dead && actor.controller.WantsToFire()) flags |= (int)ActorStateFlags.Fire;
             if (!actor.dead && actor.controller.HoldingSprint()) flags |= (int)ActorStateFlags.HoldingSprint;
             if (!actor.dead && actor.controller.IdlePose()) flags |= (int)ActorStateFlags.IdlePose;
             if (!actor.dead && actor.controller.IsAirborne()) flags |= (int)ActorStateFlags.IsAirborne;
@@ -2633,7 +2645,12 @@ namespace RavenM
                 {
                     Id = owned_actor,
                     Name = actor.name,
-                    Position = actor.Position(),
+                    // If the player is on a moving platform, we send the delta to
+                    // the vehicle instead of the actual position. This is so that
+                    // we can stay on the vehicle even though there is a delay in position updates.
+                    Position =  actor.controller is FpsActorController fpsActorController && fpsActorController.movingPlatformVehicle != null 
+                                && fpsActorController.movingPlatformVehicle.TryGetComponent(out GuidComponent _) 
+                                ? actor.Position() - fpsActorController.movingPlatformVehicle.transform.position : actor.Position(),
                     Lean = actor.dead ? 0f : actor.controller.Lean(),
                     AirplaneInput = actor.seat != null ? (Vector4?)actor.controller.AirplaneInput() : null,
                     BoatInput = actor.seat != null ? (Vector2?)actor.controller.BoatInput() : null,
@@ -2658,7 +2675,7 @@ namespace RavenM
                     ActiveWeaponHash = actor.activeWeapon != null
                                         ? actor.IsSeated()
                                             ? actor.seat.ActiveWeaponSlot()
-                                            : actor.activeWeapon.name.GetHashCode()
+                                            : actor.activeWeapon.weaponEntry?.name.GetHashCode() ?? 0
                                         : 0,
                     Team = actor.team,
                     MarkerPosition = actor.aiControlled ? null : (Vector3?)MarkerPosition,
@@ -2667,6 +2684,9 @@ namespace RavenM
                     Health = actor.health,
                     VehicleId = actor.IsSeated() && actor.seat.vehicle.TryGetComponent(out GuidComponent vguid) ? vguid.guid : 0,
                     Seat = actor.IsSeated() ? actor.seat.vehicle.seats.IndexOf(actor.seat) : -1,
+                    MovingPlatformVehicleId = actor.controller is FpsActorController fpsActorController2 && fpsActorController2.movingPlatformVehicle != null 
+                                             && fpsActorController2.movingPlatformVehicle.TryGetComponent(out GuidComponent pguid) 
+                                             ? pguid.guid : 0,
                 };
 
                 bulkActorUpdate.Updates.Add(net_actor);
