@@ -11,6 +11,7 @@ using System.Reflection.Emit;
 using System.Runtime.InteropServices;
 using UnityEngine;
 using Ravenfield.SpecOps;
+using Ravenfield.Trigger;
 using RavenM.Commands;
 using Ravenfield.Mods.Data;
 
@@ -82,23 +83,33 @@ namespace RavenM
     [HarmonyPatch(typeof(Mortar), "GetTargetPosition")]
     public class MortarTargetPatch
     {
-        // Patch the first conditional jump to an unconditional one. This will skip the
-        // block which assumes the Actor is a bot and has an Actor target.
-        // FIXME: This means the bots will have garbage aim with the mortar.
         static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
         {
-            bool first = true;
-
             foreach (var instruction in instructions)
             {
-                if (first && instruction.opcode == OpCodes.Brtrue)
+                if (instruction.opcode == OpCodes.Call && (MethodInfo)instruction.operand == typeof(Weapon).GetMethod(nameof(Weapon.UserIsPlayer), BindingFlags.Instance | BindingFlags.Public))
                 {
-                    instruction.opcode = OpCodes.Brfalse;
-                    first = false;
+                    // IL_0001: call instance bool Weapon::UserIsPlayer() -> call bool MortarTargetPatch::UserIsPlayerPatch(Weapon)
+                    yield return new CodeInstruction(OpCodes.Call, typeof(MortarTargetPatch).GetMethod(nameof(UserIsPlayerPatch), BindingFlags.Static | BindingFlags.NonPublic));
                 }
-
-                yield return instruction;
+                else
+                {
+                    yield return instruction;
+                }
             }
+        }
+
+        static bool UserIsPlayerPatch(Weapon weapon)
+        {
+            if (!IngameNetManager.instance.IsClient)
+                return weapon.UserIsPlayer();
+
+            var guid = weapon.user.GetComponent<GuidComponent>();
+
+            if (guid != null && IngameNetManager.instance.OwnedActors.Contains(guid.guid))
+                return weapon.UserIsPlayer();
+
+            return true;
         }
     }
 
@@ -2289,6 +2300,55 @@ namespace RavenM
                                     var controller = (AiActorController)actor.controller;
                                     controller.targetDetectionProgress = 0f;
                                     typeof(DetectionUi).GetMethod("StartDetection", BindingFlags.Static | BindingFlags.Public).Invoke(null, new object[] { controller });
+                                }
+                                break;
+                            case PacketType.Trigger:
+                                {
+                                    var triggerPacket = dataStream.ReadTriggerPacket();
+                                    Plugin.logger.LogDebug($"Receiving Trigger Packet with ID: {triggerPacket.Id}");
+                                    List<TriggerBaseComponent> baseComponents = FindObjectsOfType<TriggerBaseComponent>().ToList();
+                                    List<TriggerReceiver> baseReceivers = FindObjectsOfType<TriggerReceiver>().ToList();
+                                    Plugin.logger.LogDebug(baseComponents.Count);
+                                    TriggerBaseComponent source = null;
+                                    foreach (TriggerBaseComponent component in baseComponents)
+                                    {
+                                        if (TriggerReceivePatch.GetTriggerComponentHash(component) == triggerPacket.SourceId)
+                                        {
+                                            source = component;
+                                            break;
+                                        }
+                                    }
+                                    if(source == null)
+                                    {
+                                        Plugin.logger.LogWarning($"Failed to find source for trigger packet! packetID: {triggerPacket.Id}, sourceId: {triggerPacket.SourceId}");
+                                        return;
+                                    }
+                                    TriggerReceiver targetReceiver = null;
+                                    foreach (TriggerReceiver receiver in baseReceivers)
+                                    {
+                                        if (TriggerReceivePatch.GetTriggerComponentHash(receiver) == triggerPacket.Id)
+                                        {
+                                            targetReceiver = receiver;
+                                            break;
+                                        }
+                                    }
+                                    if(targetReceiver == null)
+                                    {
+                                        Plugin.logger.LogWarning($"Failed to find target receiver for trigger packet!! : {triggerPacket.Id}");
+                                        return;
+                                    }
+                                   
+                                    TriggerSignal signal = new TriggerSignal(source);
+                                    signal.context.actor = triggerPacket.ActorId != -1 ? ClientActors[triggerPacket.ActorId] : null;
+                                    signal.context.vehicle = triggerPacket.VehicleId != -1 ? ClientVehicles[triggerPacket.VehicleId] : null;
+                                    try
+                                    {
+                                        targetReceiver.ReceiveSignal(signal);
+                                    }
+                                    catch(Exception e)
+                                    {
+                                        Plugin.logger.LogWarning($"Something went wrong with trigger packets somewhere: {e}");
+                                    }
                                 }
                                 break;
                             default:
