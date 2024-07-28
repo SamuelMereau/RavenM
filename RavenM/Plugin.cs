@@ -4,9 +4,14 @@ using BepInEx.Configuration;
 using HarmonyLib;
 using Steamworks;
 using System.Collections.Generic;
+using System.IO.Pipes;
 using System.Linq;
 using System.Reflection;
+using System.Text;
+using System.Threading;
+using SimpleJSON;
 using UnityEngine;
+using System.Runtime.InteropServices;
 namespace RavenM
 {
     /// <summary>
@@ -53,6 +58,8 @@ namespace RavenM
         public static List<string> customMutatorsDirectories = new List<string>();
 
         public static bool JoinedLobbyFromArgument = false;
+        public static bool CreatedLobbyFromArgument = false;
+        public DevtoolsPipeServer devtoolsPipeServer;
         public static Dictionary<string, string> Arguments = new Dictionary<string, string>();
 
         public static string BuildGUID
@@ -170,20 +177,54 @@ namespace RavenM
                 discordObject.AddComponent<DiscordIntegration>();
                 DontDestroyOnLoad(discordObject);
             }
-            else if (!JoinedLobbyFromArgument && Arguments.ContainsKey("-ravenm-lobby"))
+            else
             {
-                JoinLobbyFromArgument();
+                switch (!JoinedLobbyFromArgument && !CreatedLobbyFromArgument)
+                {
+                    case var joinedFromArgument when (!JoinedLobbyFromArgument && Arguments.ContainsKey("-ravenm-lobby")):
+                        JoinLobbyFromArgument();
+                        break;
+                    case var createdFromArgument when (!CreatedLobbyFromArgument && Arguments.ContainsKey("-create-test-ravenm-lobby")):
+                        CreateLobbyFromArgument();
+                        break;
+                }
             }
         }
 
         void JoinLobbyFromArgument()
         {
+            OptionsPatch.SetConfigValues(false);
             JoinedLobbyFromArgument = true;
             CSteamID lobbyId = new CSteamID(ulong.Parse(Arguments["-ravenm-lobby"]));
             SteamMatchmaking.JoinLobby(lobbyId);
             LobbySystem.instance.InLobby = true;
             LobbySystem.instance.IsLobbyOwner = false;
             LobbySystem.instance.LobbyDataReady = false;
+        }
+
+        void CreateLobbyFromArgument()
+        {
+            CreatedLobbyFromArgument = true;
+            SteamMatchmaking.CreateLobby(ELobbyType.k_ELobbyTypePrivate, 2);
+            LobbySystem.instance.InLobby = true;
+            LobbySystem.instance.IsLobbyOwner = true;
+            LobbySystem.instance.LobbyDataReady = false;
+
+            devtoolsPipeServer = new DevtoolsPipeServer();
+            devtoolsPipeServer.OnTcpClientConnected += (sender, message) =>
+            {
+                bool lobbyStarted = false;
+                while (!lobbyStarted)
+                {
+                    CSteamID lobbyId = LobbySystem.instance.ActualLobbyID;
+                    
+                    if (lobbyId.m_SteamID != 0)
+                    {
+                        lobbyStarted = true;
+                        devtoolsPipeServer.SendMessage("{ \"lobby_id\": \"" + lobbyId.m_SteamID + "\" }");
+                    }
+                }
+            };
         }
     }
 }
