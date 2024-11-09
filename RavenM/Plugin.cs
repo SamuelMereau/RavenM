@@ -61,7 +61,7 @@ namespace RavenM
             {
                 if (!changeGUID)
                 {
-                    return $"INDEV-{Assembly.GetExecutingAssembly().ManifestModule.ModuleVersionId.ToString().Split('-').Last()}";
+                    return $"INDEV-0-7-{Assembly.GetExecutingAssembly().ManifestModule.ModuleVersionId.ToString().Split('-').Last()}";
                 }
                 else
                 {
@@ -70,7 +70,7 @@ namespace RavenM
             }
         }
 
-        public static readonly int EXPECTED_BUILD_NUMBER = 28;
+        public static readonly int EXPECTED_BUILD_NUMBER = 29;
 
         private ConfigEntry<bool> configRavenMDevMod;
         private ConfigEntry<bool> configRavenMAddToBuiltInMutators;
@@ -79,6 +79,17 @@ namespace RavenM
         {
             instance = this;
             logger = Logger;
+
+            string[] commandLineArgs = Environment.GetCommandLineArgs();
+
+            for (int i = 0; i < commandLineArgs.Length; i++)
+            {
+                if (commandLineArgs[i] == "-noravenm") 
+                { 
+                    Logger.LogWarning($"Plugin {PluginInfo.PLUGIN_GUID} is canceled to load!");
+                    throw new Exception("Cancel load");
+                }
+            }
 
             Logger.LogInfo($"Plugin {PluginInfo.PLUGIN_GUID} is loaded!");
 
@@ -110,7 +121,7 @@ namespace RavenM
             }
             var harmony = new Harmony("patch.ravenm");
             try {
-                harmony.PatchAll();
+                harmony.PatchAll( Assembly.GetAssembly( typeof(LobbySystem) ) );
             } catch (Exception e) {
                 Logger.LogError($"Failed to patch: {e}");
             }
